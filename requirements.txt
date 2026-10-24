@@ -1,0 +1,9 @@
+django==5.1.4
+channels==4.1.0
+channels-redis==4.2.0
+daphne==4.1.2
+psycopg2-binary==2.9.9
+python-dotenv==1.0.1
+django-jazzmin==3.0.1
+deepgram-sdk==3.7.7
+whitenoise==6.8.2

@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Create Account — LexiSync{% endblock %}
+
+{% block content %}
+<div class="flex min-h-screen items-center justify-center px-4">
+  <div class="w-full max-w-sm">
+    <div class="text-center mb-8">
+      <h1 class="text-3xl font-bold text-white">Join LexiSync</h1>
+      <p class="text-gray-400 mt-2 text-sm">Create an account and start practising</p>
+    </div>
+
+    <div class="glass rounded-2xl p-8 space-y-5">
+      <form method="post" class="space-y-4">
+        {% csrf_token %}
+        {% for field in form %}
+        <div>
+          <label class="block text-xs font-semibold text-gray-400 uppercase tracking-widest mb-1">{{ field.label }}</label>
+          {% if field.help_text %}<p class="text-gray-600 text-xs mb-1">{{ field.help_text }}</p>{% endif %}
+          <input
+            type="{{ field.field.widget.input_type }}"
+            name="{{ field.html_name }}"
+            id="{{ field.id_for_label }}"
+            class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition"
+            {% if field.value %}value="{{ field.value }}"{% endif %}
+          />
+          {% if field.errors %}<p class="text-red-400 text-xs mt-1">{{ field.errors|join:", " }}</p>{% endif %}
+        </div>
+        {% endfor %}
+
+        <button type="submit" class="w-full bg-brand-600 hover:bg-brand-700 text-white font-semibold py-2.5 rounded-lg transition-colors text-sm mt-2">
+          Create Account
+        </button>
+      </form>
+
+      <p class="text-center text-gray-500 text-sm">
+        Already have an account? <a href="{% url 'accounts:login' %}" class="text-brand-400 hover:text-brand-300 font-medium">Sign in</a>
+      </p>
+    </div>
+  </div>
+</div>
+{% endblock %}

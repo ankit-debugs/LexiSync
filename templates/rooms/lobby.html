@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Lobby — LexiSync{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto px-4 py-12">
+
+  <!-- Hero -->
+  <div class="text-center mb-12">
+    <h1 class="text-4xl font-bold text-white mb-3">Practice English Together</h1>
+    <p class="text-gray-400">Create a room, share the code, and get AI grammar corrections in real-time.</p>
+  </div>
+
+  <!-- Action cards -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-12">
+
+    <!-- Create room -->
+    <div class="glass rounded-2xl p-6">
+      <h2 class="text-lg font-semibold text-white mb-1">Start a Session</h2>
+      <p class="text-gray-400 text-sm mb-4">You become the host. Share the room code with your partner.</p>
+      <form method="post" action="{% url 'rooms:create_room' %}">
+        {% csrf_token %}
+        <input
+          type="text"
+          name="name"
+          placeholder="Room name (optional)"
+          maxlength="100"
+          class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition mb-3"
+        />
+        <button type="submit" class="w-full bg-brand-600 hover:bg-brand-700 text-white font-semibold py-2.5 rounded-lg transition text-sm">
+          Create Room →
+        </button>
+      </form>
+    </div>
+
+    <!-- Join room -->
+    <div class="glass rounded-2xl p-6">
+      <h2 class="text-lg font-semibold text-white mb-1">Join a Session</h2>
+      <p class="text-gray-400 text-sm mb-4">Enter the 8-character code your partner shared with you.</p>
+      <form method="post" action="{% url 'rooms:join_room' %}">
+        {% csrf_token %}
+        <input
+          type="text"
+          name="code"
+          placeholder="e.g. A1B2C3D4"
+          maxlength="8"
+          class="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition mb-3 uppercase tracking-widest"
+        />
+        <button type="submit" class="w-full bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2.5 rounded-lg transition text-sm">
+          Join Room →
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Active rooms -->
+  {% if hosted_rooms or joined_rooms %}
+  <div>
+    <h2 class="text-gray-400 text-xs uppercase tracking-widest font-semibold mb-4">Your Active Sessions</h2>
+    <div class="space-y-3">
+      {% for room in hosted_rooms %}
+      <a href="{% url 'rooms:room_detail' room.id %}" class="glass rounded-xl px-5 py-4 flex items-center justify-between hover:border-brand-500/50 transition group block">
+        <div>
+          <p class="text-white font-medium group-hover:text-brand-400 transition">{{ room.name }}</p>
+          <p class="text-gray-500 text-xs mt-0.5">Host · Code: <span class="font-mono text-gray-300">{{ room.room_code }}</span></p>
+        </div>
+        <span class="text-brand-400 text-sm">Enter →</span>
+      </a>
+      {% endfor %}
+      {% for room in joined_rooms %}
+      <a href="{% url 'rooms:room_detail' room.id %}" class="glass rounded-xl px-5 py-4 flex items-center justify-between hover:border-brand-500/50 transition group block">
+        <div>
+          <p class="text-white font-medium group-hover:text-brand-400 transition">{{ room.name }}</p>
+          <p class="text-gray-500 text-xs mt-0.5">Guest · hosted by {{ room.host.username }}</p>
+        </div>
+        <span class="text-brand-400 text-sm">Rejoin →</span>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

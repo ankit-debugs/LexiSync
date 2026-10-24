@@ -1,0 +1,676 @@
+{% extends "base.html" %}
+{% block title %}{{ room.name }} — LexiSync{% endblock %}
+
+{% block extra_head %}
+<!-- PeerJS for WebRTC -->
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="h-screen flex flex-col pt-14 bg-gray-950" id="room-root">
+
+  <!-- Top bar -->
+  <div class="glass border-b border-white/5 px-6 py-2 flex items-center justify-between shrink-0">
+    <div class="flex items-center gap-3">
+      <span class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
+      <span class="text-white font-medium text-sm">{{ room.name }}</span>
+      <span class="text-gray-500 text-xs">·</span>
+      <span class="text-gray-400 text-xs font-mono">{{ room.room_code }}</span>
+    </div>
+    <div class="flex items-center gap-3">
+      <!-- Copy code button -->
+      <button
+        onclick="copyCode('{{ room.room_code }}')"
+        class="text-xs text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 rounded-lg px-3 py-1.5 transition flex items-center gap-1.5"
+        title="Copy room code">
+        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+        Share Code
+      </button>
+      {% if is_host %}
+      <a href="{% url 'rooms:end_room' room.id %}"
+         onclick="return confirm('End session for everyone?')"
+         class="text-xs text-red-400 hover:text-red-300 border border-red-900 hover:border-red-700 rounded-lg px-3 py-1.5 transition">
+        End Session
+      </a>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Main layout -->
+  <div class="flex flex-1 overflow-hidden">
+
+    <!-- === VIDEO AREA === -->
+    <div class="flex-1 flex flex-col p-4 gap-4 relative">
+
+      <!-- Videos grid -->
+      <div class="flex-1 grid grid-cols-2 gap-4" id="video-grid">
+        <!-- My video -->
+        <div class="relative rounded-2xl overflow-hidden bg-gray-900 border border-white/5" id="local-video-wrapper">
+          <video id="local-video" autoplay muted playsinline class="w-full h-full object-cover"></video>
+          <div class="absolute bottom-3 left-3 text-xs font-medium bg-black/60 rounded-full px-2.5 py-1">
+            {{ user.username }} (you)
+          </div>
+          <!-- My subtitle -->
+          <div id="local-subtitle" class="absolute bottom-10 inset-x-3 text-center text-white text-sm font-medium drop-shadow-lg hidden"></div>
+        </div>
+
+        <!-- Remote video -->
+        <div class="relative rounded-2xl overflow-hidden bg-gray-900 border border-white/5" id="remote-video-wrapper">
+          <video id="remote-video" autoplay playsinline class="w-full h-full object-cover"></video>
+          <!-- Waiting overlay -->
+          <div id="waiting-overlay" class="absolute inset-0 flex flex-col items-center justify-center text-gray-500">
+            <svg class="w-10 h-10 mb-3 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+            <p class="text-sm">Waiting for partner…</p>
+            <p class="text-xs mt-1 font-mono text-gray-600">Share code: <span class="text-gray-400">{{ room.room_code }}</span></p>
+          </div>
+          <!-- Remote username badge -->
+          <div id="remote-username-badge" class="absolute bottom-3 left-3 text-xs font-medium bg-black/60 rounded-full px-2.5 py-1 hidden"></div>
+          <!-- Remote subtitle -->
+          <div id="remote-subtitle" class="absolute bottom-10 inset-x-3 text-center text-white text-sm font-medium drop-shadow-lg hidden"></div>
+        </div>
+      </div>
+
+      <!-- Controls bar -->
+      <div class="flex items-center justify-center gap-4 shrink-0 py-2">
+        <button id="btn-mic" onclick="toggleMic()" title="Toggle microphone"
+          class="w-12 h-12 rounded-full glass hover:bg-white/10 transition flex items-center justify-center text-white">
+          <svg id="icon-mic-on" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 016 0v6a3 3 0 01-3 3z"/>
+          </svg>
+          <svg id="icon-mic-off" class="w-5 h-5 hidden text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" clip-rule="evenodd"/>
+            <path stroke-linecap="round" stroke-linejoin="round" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"/>
+          </svg>
+        </button>
+
+        <button id="btn-cam" onclick="toggleCamera()" title="Toggle camera"
+          class="w-12 h-12 rounded-full glass hover:bg-white/10 transition flex items-center justify-center text-white">
+          <svg id="icon-cam-on" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+          </svg>
+          <svg id="icon-cam-off" class="w-5 h-5 hidden text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>
+          </svg>
+        </button>
+
+        <!-- STT toggle -->
+        <button id="btn-stt" onclick="toggleSTT()" title="Toggle AI corrections"
+          class="w-12 h-12 rounded-full bg-brand-600/20 border border-brand-500/30 hover:bg-brand-600/40 transition flex items-center justify-center text-brand-400">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Status bar -->
+      <div id="status-bar" class="text-center text-xs text-gray-600 shrink-0 -mt-2 pb-1"></div>
+    </div>
+
+    <!-- === RIGHT PANEL: Transcript + Corrections === -->
+    <div class="w-80 flex flex-col border-l border-white/5 glass shrink-0">
+      <div class="px-4 py-3 border-b border-white/5 flex items-center justify-between">
+        <span class="text-xs font-semibold text-gray-400 uppercase tracking-widest">Transcript & Corrections</span>
+        <span id="ai-indicator" class="text-xs text-brand-400 hidden flex items-center gap-1">
+          <span class="w-1.5 h-1.5 bg-brand-400 rounded-full animate-pulse inline-block"></span> AI live
+        </span>
+      </div>
+
+      <!-- Transcript feed -->
+      <div id="transcript-feed" class="flex-1 overflow-y-auto p-4 space-y-3 text-sm">
+        {% for t in transcripts %}
+        <div class="fade-in">
+          <p class="text-gray-500 text-xs mb-0.5">{{ t.speaker.username }}</p>
+          {% if t.has_errors %}
+          <div class="pill-error rounded-lg p-3 space-y-1.5">
+            <p class="text-red-200 line-through text-xs opacity-60">{{ t.original_text }}</p>
+            <p class="text-white font-medium">{{ t.corrected_text }}</p>
+          </div>
+          {% else %}
+          <div class="pill-ok rounded-lg p-3">
+            <p class="text-green-100">{{ t.original_text }}</p>
+          </div>
+          {% endif %}
+        </div>
+        {% empty %}
+        <p class="text-gray-600 text-xs text-center pt-6">Corrections will appear here when you speak.</p>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast for corrections -->
+<div id="correction-toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 max-w-lg w-full px-4 hidden">
+  <div class="glass rounded-2xl p-4 border border-red-500/30 bg-red-950/40 fade-in">
+    <div class="flex items-start gap-3">
+      <span class="text-red-400 text-lg mt-0.5">✏️</span>
+      <div class="flex-1 min-w-0">
+        <p class="text-xs text-gray-400 mb-1" id="toast-speaker"></p>
+        <p class="text-gray-400 text-sm line-through" id="toast-original"></p>
+        <p class="text-white font-medium text-sm" id="toast-corrected"></p>
+      </div>
+      <button onclick="document.getElementById('correction-toast').classList.add('hidden')" class="text-gray-600 hover:text-gray-300 text-lg leading-none">×</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// ─────────────────────────────────────────────
+//  CONFIGURATION
+// ─────────────────────────────────────────────
+const ROOM_ID       = "{{ room.id }}";
+const MY_USERNAME   = "{{ user.username }}";
+const IS_HOST       = {{ is_host|yesno:"true,false" }};
+const DEEPGRAM_KEY  = "{{ deepgram_api_key }}";
+
+// ─────────────────────────────────────────────
+//  STATE
+// ─────────────────────────────────────────────
+let localStream   = null;
+let peer          = null;
+let activeCall    = null;
+let ws            = null;
+let dgSocket      = null;      // Deepgram WebSocket
+let sttActive     = false;
+let micEnabled    = true;
+let camEnabled    = true;
+let subtitleTimers = {};
+
+// ─────────────────────────────────────────────
+//  BOOT
+// ─────────────────────────────────────────────
+window.addEventListener("load", async () => {
+  await startMedia();
+  connectWebSocket();
+});
+
+// ─────────────────────────────────────────────
+//  MEDIA
+// ─────────────────────────────────────────────
+async function startMedia() {
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    document.getElementById("local-video").srcObject = localStream;
+    setStatus("Camera ready.");
+    initPeer();
+  } catch (err) {
+    setStatus("⚠️ Camera/mic blocked — check browser permissions.");
+    console.error(err);
+  }
+}
+
+function toggleMic() {
+  if (!localStream) return;
+  micEnabled = !micEnabled;
+  localStream.getAudioTracks().forEach(t => t.enabled = micEnabled);
+  document.getElementById("icon-mic-on").classList.toggle("hidden",  !micEnabled);
+  document.getElementById("icon-mic-off").classList.toggle("hidden", micEnabled);
+  if (!micEnabled && sttActive) stopSTT();
+}
+
+function toggleCamera() {
+  if (!localStream) return;
+  camEnabled = !camEnabled;
+  localStream.getVideoTracks().forEach(t => t.enabled = camEnabled);
+  document.getElementById("icon-cam-on").classList.toggle("hidden",  !camEnabled);
+  document.getElementById("icon-cam-off").classList.toggle("hidden", camEnabled);
+}
+
+// ─────────────────────────────────────────────
+//  PEERJS — WebRTC video
+// ─────────────────────────────────────────────
+let callRetryTimer = null;
+let callEstablished = false;
+
+function initPeer() {
+  // Add a random suffix so re-joining doesn't collide with the old peer ID
+  // still in PeerJS cloud for ~30s after disconnect
+  const role = IS_HOST ? "host" : "guest";
+  const myPeerId = `lexisync-${ROOM_ID}-${role}-${Math.random().toString(36).slice(2, 6)}`;
+
+  peer = new Peer(myPeerId, {
+    debug: 1,
+    config: {
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+        { urls: "stun:global.stun.twilio.com:3478" },
+      ]
+    }
+  });
+
+  peer.on("open", (id) => {
+    console.log("My PeerJS ID:", id);
+    if (IS_HOST) {
+      setStatus("Waiting for partner to join…");
+      // Broadcast our peer ID over Django WS so the guest can call us
+      wsSend({ type: "peer_ready", peer_id: id, role: "host" });
+    } else {
+      setStatus("Joining room… waiting for host peer ID…");
+      // Broadcast ours too
+      wsSend({ type: "peer_ready", peer_id: id, role: "guest" });
+    }
+  });
+
+  peer.on("call", (call) => {
+    // Someone is calling us — answer immediately
+    console.log("Incoming call from:", call.peer);
+    clearTimeout(callRetryTimer);
+    call.answer(localStream);
+    handleCall(call);
+  });
+
+  peer.on("error", (err) => {
+    console.error("PeerJS error:", err.type, err);
+    if (err.type === "peer-unavailable") {
+      setStatus("Partner not ready yet — retrying…");
+      // Will be retried when we receive their peer_ready signal
+    } else if (err.type === "unavailable-id") {
+      // ID collision — reinit with a new random suffix
+      setTimeout(initPeer, 1000);
+    }
+  });
+}
+
+// Called when we receive the other peer's ID via Django WS
+function callPeer(remotePeerId) {
+  if (callEstablished || !peer || !localStream) return;
+  console.log("Calling peer:", remotePeerId);
+  setStatus("Connecting video…");
+
+  const attemptCall = () => {
+    if (callEstablished) return;
+    const call = peer.call(remotePeerId, localStream);
+    if (call) {
+      handleCall(call);
+      // If no stream within 8s, retry
+      callRetryTimer = setTimeout(() => {
+        if (!callEstablished) {
+          console.log("No stream yet, retrying call…");
+          setStatus("Retrying video connection…");
+          attemptCall();
+        }
+      }, 8000);
+    }
+  };
+
+  attemptCall();
+}
+
+function handleCall(call) {
+  activeCall = call;
+  call.on("stream", (remoteStream) => {
+    clearTimeout(callRetryTimer);
+    callEstablished = true;
+    const vid = document.getElementById("remote-video");
+    vid.srcObject = remoteStream;
+    document.getElementById("waiting-overlay").classList.add("hidden");
+    setStatus("Connected! 🎉 Enable AI corrections with the brain button.");
+  });
+  call.on("close", () => {
+    callEstablished = false;
+    document.getElementById("waiting-overlay").classList.remove("hidden");
+    setStatus("Partner disconnected.");
+  });
+  call.on("error", (err) => {
+    console.error("Call error:", err);
+    callEstablished = false;
+  });
+}
+
+// ─────────────────────────────────────────────
+//  DJANGO CHANNELS — signalling + corrections
+// ─────────────────────────────────────────────
+function connectWebSocket() {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(`${proto}://${location.host}/ws/room/${ROOM_ID}/`);
+
+  ws.onopen = () => console.log("WS connected");
+
+  ws.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+    if (data.type === "correction" || data.type === "correction_error") {
+      console.log("Grammar websocket message received:", data);
+    }
+    switch (data.type) {
+      case "peer_joined":
+        if (data.username !== MY_USERNAME) {
+          document.getElementById("remote-username-badge").textContent = data.username;
+          document.getElementById("remote-username-badge").classList.remove("hidden");
+        }
+        break;
+      case "peer_ready":
+        // The other peer just told us their PeerJS ID — now we can call them
+        if (data.role !== (IS_HOST ? "host" : "guest")) {
+          // It's the other side's ID, not ours echoed back
+          console.log("Received peer_ready from:", data.role, "id:", data.peer_id);
+          // Both sides call each other; whichever gets through first wins
+          // Guest calls host, host calls guest — first stream wins
+          if (!callEstablished) {
+            callPeer(data.peer_id);
+          }
+        }
+        break;
+      case "peer_left":
+        setStatus(`${data.username} left the session.`);
+        break;
+      case "subtitle":
+        showSubtitle(data.username, data.text);
+        break;
+      case "correction":
+        if (data.has_errors) {
+          showCorrectionInPanel(data);
+          showCorrectionToast(data);
+        } else {
+          // No errors — resolve the pending entry by msg_id first, then text
+          markEntryClean(data.msg_id, data.original);
+        }
+        break;
+      case "correction_error":
+        console.error("Grammar correction failed for transcript:", data.msg_id, data.message);
+        setStatus(data.message);
+        break;
+    }
+  };
+
+  ws.onerror = (e) => console.error("WS error", e);
+  ws.onclose = () => setStatus("Disconnected from server.");
+}
+
+function wsSend(obj) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    if (obj.type === "transcript") console.log("Sending transcript to backend:", obj);
+    ws.send(JSON.stringify(obj));
+  } else if (obj.type === "transcript") {
+    console.error("Transcript not sent: Django websocket is not open.", obj);
+  }
+}
+
+// ─────────────────────────────────────────────
+//  DEEPGRAM — Speech-to-Text
+// ─────────────────────────────────────────────
+function toggleSTT() {
+  sttActive ? stopSTT() : startSTT();
+}
+
+function startSTT() {
+  if (!localStream || !micEnabled) {
+    setStatus("Enable your microphone first.");
+    return;
+  }
+  if (!DEEPGRAM_KEY) {
+    setStatus("Deepgram key not set in .env — check server config.");
+    return;
+  }
+
+  // Pick the best supported audio format for this browser
+  function getSupportedMimeType() {
+    const types = [
+      "audio/webm;codecs=opus",
+      "audio/webm",
+      "audio/ogg;codecs=opus",
+      "audio/ogg",
+    ];
+    for (const t of types) {
+      if (MediaRecorder.isTypeSupported(t)) {
+        console.log("MediaRecorder using:", t);
+        return t;
+      }
+    }
+    console.log("MediaRecorder using: browser default");
+    return "";   // let browser pick
+  }
+
+  dgSocket = new WebSocket(
+    `wss://api.deepgram.com/v1/listen?model=nova-2&language=en&punctuate=true&interim_results=true&endpointing=300&smart_format=true&encoding=linear16&sample_rate=16000`,
+    ["token", DEEPGRAM_KEY]
+  );
+
+  dgSocket.onopen = async () => {
+    sttActive = true;
+    document.getElementById("ai-indicator").classList.remove("hidden");
+    document.getElementById("btn-stt").classList.replace("bg-brand-600/20", "bg-brand-600/60");
+    setStatus("🎙️ AI listening…");
+    await streamAudioToDeepgram();
+  };
+
+  dgSocket.onmessage = (e) => {
+    const result = JSON.parse(e.data);
+    const transcript = result?.channel?.alternatives?.[0]?.transcript;
+    if (!transcript || !transcript.trim()) return;
+
+    if (result.is_final) {
+      // Generate a unique ID for this utterance
+      const msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2,6)}`;
+      console.log("Final transcript received from Deepgram:", transcript, msgId);
+      wsSend({ type: "transcript", text: transcript, msg_id: msgId });
+      // Pre-add to panel immediately with that ID so correction can find it
+      showTranscriptInPanel(MY_USERNAME, transcript, msgId);
+    } else {
+      showLocalSubtitleInterim(transcript);
+    }
+  };
+
+  dgSocket.onerror = (e) => {
+    console.error("Deepgram WS error", e);
+    setStatus("Deepgram connection error — check your API key.");
+    stopSTT();
+  };
+
+  dgSocket.onclose = () => {
+    sttActive = false;
+    document.getElementById("ai-indicator").classList.add("hidden");
+    document.getElementById("btn-stt").classList.replace("bg-brand-600/60", "bg-brand-600/20");
+  };
+}
+
+// Pipe mic audio to Deepgram via AudioWorklet (modern) with ScriptProcessor fallback
+let audioContext = null;
+let audioSource  = null;
+let audioProcessor = null;
+
+// Inline AudioWorklet processor as a Blob URL
+const WORKLET_CODE = `
+class PCMProcessor extends AudioWorkletProcessor {
+  process(inputs) {
+    const input = inputs[0];
+    if (input && input[0]) {
+      const float32 = input[0];
+      const int16 = new Int16Array(float32.length);
+      for (let i = 0; i < float32.length; i++) {
+        const s = Math.max(-1, Math.min(1, float32[i]));
+        int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+      }
+      this.port.postMessage(int16.buffer, [int16.buffer]);
+    }
+    return true;
+  }
+}
+registerProcessor('pcm-processor', PCMProcessor);
+`;
+
+async function streamAudioToDeepgram() {
+  audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+  audioSource  = audioContext.createMediaStreamSource(new MediaStream(localStream.getAudioTracks()));
+
+  try {
+    // Modern path: AudioWorklet
+    const blob = new Blob([WORKLET_CODE], { type: "application/javascript" });
+    const url  = URL.createObjectURL(blob);
+    await audioContext.audioWorklet.addModule(url);
+    URL.revokeObjectURL(url);
+
+    audioProcessor = new AudioWorkletNode(audioContext, "pcm-processor");
+    audioProcessor.port.onmessage = (e) => {
+      if (dgSocket?.readyState === WebSocket.OPEN) dgSocket.send(e.data);
+    };
+    audioSource.connect(audioProcessor);
+    audioProcessor.connect(audioContext.destination);
+    console.log("Audio streaming via AudioWorklet at 16kHz PCM");
+  } catch (err) {
+    // Fallback: ScriptProcessorNode (still works, just deprecated)
+    console.warn("AudioWorklet failed, falling back to ScriptProcessor:", err);
+    audioProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+    audioProcessor.onaudioprocess = (e) => {
+      if (dgSocket?.readyState !== WebSocket.OPEN) return;
+      const float32 = e.inputBuffer.getChannelData(0);
+      const int16 = new Int16Array(float32.length);
+      for (let i = 0; i < float32.length; i++) {
+        const s = Math.max(-1, Math.min(1, float32[i]));
+        int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+      }
+      dgSocket.send(int16.buffer);
+    };
+    audioSource.connect(audioProcessor);
+    audioProcessor.connect(audioContext.destination);
+    console.log("Audio streaming via ScriptProcessor at 16kHz PCM");
+  }
+}
+
+function stopSTT() {
+  if (audioProcessor) { audioProcessor.disconnect(); audioProcessor = null; }
+  if (audioSource)    { audioSource.disconnect();    audioSource    = null; }
+  if (audioContext)   { audioContext.close();        audioContext   = null; }
+  if (dgSocket)       { dgSocket.close();            dgSocket       = null; }
+  sttActive = false;
+  setStatus("AI corrections paused.");
+}
+
+// ─────────────────────────────────────────────
+//  SUBTITLES
+// ─────────────────────────────────────────────
+function showLocalSubtitleInterim(text) {
+  const el = document.getElementById("local-subtitle");
+  el.textContent = text;
+  el.classList.remove("hidden");
+}
+
+function showSubtitle(username, text) {
+  const isMe = username === MY_USERNAME;
+  const el = document.getElementById(isMe ? "local-subtitle" : "remote-subtitle");
+  el.textContent = text;
+  el.classList.remove("hidden");
+  clearTimeout(subtitleTimers[username]);
+  subtitleTimers[username] = setTimeout(() => el.classList.add("hidden"), 4000);
+
+  // Remote speaker: add to panel (local speaker adds their own via Deepgram handler)
+  if (!isMe) showTranscriptInPanel(username, text, null);
+}
+
+// ─────────────────────────────────────────────
+//  CORRECTION UI
+// ─────────────────────────────────────────────
+
+const pendingEntries = {}; // msgId → DOM element id
+
+function showTranscriptInPanel(username, text, msgId) {
+  const feed = document.getElementById("transcript-feed");
+  const placeholder = feed.querySelector("p.text-gray-600");
+  if (placeholder) placeholder.remove();
+
+  const domId = msgId || `entry-${Date.now()}-${Math.random().toString(36).slice(2,6)}`;
+  const div = document.createElement("div");
+  div.className = "fade-in";
+  div.id = domId;
+  div.innerHTML = `
+    <p class="text-gray-500 text-xs mb-0.5">${escHtml(username)}</p>
+    <div class="pill-ok rounded-lg p-3">
+      <p class="text-green-100 text-sm">${escHtml(text)}</p>
+      <p class="checking-tag text-gray-500 text-xs mt-1 italic">Checking grammar…</p>
+    </div>`;
+  feed.appendChild(div);
+  feed.scrollTop = feed.scrollHeight;
+
+  // Index by both msgId and text so correction can find it either way
+  if (msgId) pendingEntries[msgId] = domId;
+  pendingEntries[text.trim().toLowerCase()] = domId;
+
+  setTimeout(() => {
+    if (msgId) delete pendingEntries[msgId];
+    delete pendingEntries[text.trim().toLowerCase()];
+    const el = document.getElementById(domId);
+    if (el) { const c = el.querySelector(".checking-tag"); if (c) c.remove(); }
+  }, 30000);
+}
+
+function showCorrectionInPanel(data) {
+  const feed = document.getElementById("transcript-feed");
+  const key = data.original.trim().toLowerCase();
+  const pendingId = pendingEntries[data.msg_id] || pendingEntries[key];
+  console.log("Rendering corrected transcript:", data.msg_id, data.corrected, "matched entry:", pendingId);
+
+  if (pendingId) {
+    const existing = document.getElementById(pendingId);
+    if (existing) {
+      existing.innerHTML = `
+        <p class="text-gray-500 text-xs mb-0.5">${escHtml(data.username)}</p>
+        <div class="pill-error rounded-lg p-3 space-y-1.5">
+          <p class="text-red-200 line-through text-xs opacity-60">${escHtml(data.original)}</p>
+          <p class="text-white font-medium text-sm">✏️ ${escHtml(data.corrected)}</p>
+        </div>`;
+      delete pendingEntries[key];
+      if (data.msg_id) delete pendingEntries[data.msg_id];
+      feed.scrollTop = feed.scrollHeight;
+      return;
+    }
+  }
+
+  // Fallback: append new error entry
+  const placeholder = feed.querySelector("p.text-gray-600");
+  if (placeholder) placeholder.remove();
+  const div = document.createElement("div");
+  div.className = "fade-in";
+  div.innerHTML = `
+    <p class="text-gray-500 text-xs mb-0.5">${escHtml(data.username)}</p>
+    <div class="pill-error rounded-lg p-3 space-y-1.5">
+      <p class="text-red-200 line-through text-xs opacity-60">${escHtml(data.original)}</p>
+      <p class="text-white font-medium text-sm">✏️ ${escHtml(data.corrected)}</p>
+    </div>`;
+  feed.appendChild(div);
+  feed.scrollTop = feed.scrollHeight;
+}
+
+function markEntryClean(msgId, originalText) {
+  const key = originalText.trim().toLowerCase();
+  const pendingId = pendingEntries[msgId] || pendingEntries[key];
+  console.log("Rendering clean grammar result:", msgId, "matched entry:", pendingId);
+  if (!pendingId) return;
+  const el = document.getElementById(pendingId);
+  if (el) {
+    const checking = el.querySelector(".checking-tag");
+    if (checking) checking.replaceWith(Object.assign(document.createElement("p"), {
+      className: "text-green-400 text-xs mt-1",
+      textContent: "✓ Good English!"
+    }));
+  }
+  if (msgId) delete pendingEntries[msgId];
+  delete pendingEntries[key];
+}
+
+function showCorrectionToast(data) {
+  document.getElementById("toast-speaker").textContent = data.username + " said:";
+  document.getElementById("toast-original").textContent = data.original;
+  document.getElementById("toast-corrected").textContent = data.corrected;
+  const toast = document.getElementById("correction-toast");
+  toast.classList.remove("hidden");
+  setTimeout(() => toast.classList.add("hidden"), 8000);
+}
+
+// ─────────────────────────────────────────────
+//  UTILITIES
+// ─────────────────────────────────────────────
+function setStatus(msg) {
+  document.getElementById("status-bar").textContent = msg;
+}
+
+function copyCode(code) {
+  navigator.clipboard.writeText(code).then(() => setStatus(`Code "${code}" copied to clipboard!`));
+}
+
+function escHtml(str) {
+  return str.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+</script>
+{% endblock %}
